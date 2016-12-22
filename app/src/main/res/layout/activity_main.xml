@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/activity_main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:paddingBottom="@dimen/activity_vertical_margin"
+    android:paddingLeft="@dimen/activity_horizontal_margin"
+    android:paddingRight="@dimen/activity_horizontal_margin"
+    android:paddingTop="@dimen/activity_vertical_margin"
+    tools:context="viaphone.com.whistle.MainActivity">
+
+    <EditText
+        android:id="@+id/test_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/test_text"
+        android:inputType="text" />
+    <Button
+        android:layout_below="@id/test_text"
+        android:id="@+id/play_code"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/play"/>
+
+    <Button
+        android:layout_below="@id/play_code"
+        android:id="@+id/decode"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/decode"/>
+
+    <Button
+        android:layout_below="@id/decode"
+        android:id="@+id/play_record"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/play_record"/>
+
+    <rm.com.audiowave.AudioWaveView
+        android:layout_centerVertical="true"
+        android:id="@+id/wave"
+        android:layout_width="match_parent"
+        android:layout_height="100dp"
+        android:layout_margin="16dp"
+        />
+
+</RelativeLayout>

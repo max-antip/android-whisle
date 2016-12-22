@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Whistle</string>
+    <string name="play">Play</string>
+    <string name="test_text">hjntdb982ilj6etj6e3l</string>
+    <string name="decode">Decode</string>
+    <string name="play_record">Play record</string>
+</resources>
