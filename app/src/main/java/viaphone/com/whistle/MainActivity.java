@@ -62,9 +62,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         Button decodeBut = (Button) findViewById(R.id.decode);
-
         assert decodeBut != null;
-
         decodeBut.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -73,11 +71,12 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        Button playRecord  = (Button) findViewById(R.id.play_record);
+        Button playRecord = (Button) findViewById(R.id.play_record);
+        assert playRecord != null;
         playRecord.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                playRecord();
+//                playRecord();
             }
         });
     }
@@ -85,6 +84,7 @@ public class MainActivity extends AppCompatActivity {
 
     // Single out recording for run-permission needs
     static boolean created = false;
+
     private void recordAudio() {
         if (!created) {
             created = createAudioRecorder();
@@ -98,13 +98,9 @@ public class MainActivity extends AppCompatActivity {
 
     public static native void createEngine();
 
-    public static native String decode(byte buf[]);
-
     public static native boolean createAudioRecorder();
 
     public static native void startRecording();
-
-    public static native void playRecord();
 
 
     public static native void createBufferQueueAudioPlayer(int sampleRate, int samplesPerBuf);

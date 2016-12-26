@@ -6,6 +6,11 @@
 #include <SLES/OpenSLES_Android.h>
 #include <assert.h>
 
+#define  LOG_TAG    "your-log-tag"
+
+#define  LOGD(...)  __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+#define  LOGE(...)  __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
 using namespace std;
 
 static SLAndroidSimpleBufferQueueItf bqPlayerBufferQueue;
@@ -13,7 +18,7 @@ static pthread_mutex_t audioEngineLock = PTHREAD_MUTEX_INITIALIZER;
 static short *nextBuffer;
 static unsigned nextSize;
 static short *resampleBuf = NULL;
-static SLObjectItf engineObject = NULL;
+SLObjectItf engineObject = NULL;
 static SLObjectItf outputMixObject = NULL;
 static SLEffectSendItf bqPlayerEffectSend;
 static SLVolumeItf bqPlayerVolume;
@@ -21,7 +26,7 @@ static SLEnvironmentalReverbItf outputMixEnvironmentalReverb = NULL;
 static SLObjectItf recorderObject = NULL;
 static SLRecordItf recorderRecord;
 static SLAndroidSimpleBufferQueueItf recorderBufferQueue;
-#define RECORDER_FRAMES (16000 * 10)
+#define RECORDER_FRAMES (16000 * 5)
 static short recorderBuffer[RECORDER_FRAMES];
 static unsigned recorderSize = 0;
 
@@ -87,48 +92,6 @@ Java_viaphone_com_whistle_MainActivity_play(JNIEnv *env, jobject instance, jstri
 
 
 }
-
-
-
-
-extern "C" JNIEXPORT void JNICALL
-Java_viaphone_com_whistle_MainActivity_playRecord(JNIEnv *env, jclass type) {
-/*
-
-    SLresult result;
-    result = (*bqPlayerBufferQueue)->Enqueue(bqPlayerBufferQueue, recorderBuffer, recorderSize);
-    if (SL_RESULT_SUCCESS != result) {
-        pthread_mutex_unlock(&audioEngineLock);
-    }
-*/
-
-    int8_t framesPerSound = 10;
-    uint16_t frameSize = (uint16_t) (sampleRate * (RAMP_TIME + TOP_TIME) / 1000 / framesPerSound);
-
-
-    Decoder decoder(sampleRate, frameSize);
-    int frame = 0;
-    uint32_t n = 0;
-    int16_t buffer[frameSize];
-
-    while (n < recorderSize) {
-        uint32_t sz = n + frameSize < recorderSize ? frameSize : recorderSize - n;
-        for (int i = 0; i < sz; i++) {
-            buffer[i] = (int16_t) (recorderBuffer[n + i] - 127);
-        }
-
-        decoder.processFrame(buffer, 0);
-
-        n += frameSize;
-        frame++;
-    }
-
-    string decoded = decoder.getMessage();
-    n=3;
-
-
-}
-
 
 /*
 short* createResampledBuf(uint32_t srcRate, unsigned *size) {
@@ -203,44 +166,6 @@ void bqPlayerCallback(SLAndroidSimpleBufferQueueItf bq, void *context) {
     }
 }
 
-
-
-
-extern "C" JNIEXPORT jstring JNICALL
-Java_viaphone_com_whistle_MainActivity_decode(JNIEnv *env, jclass type, jbyteArray buf_) {
-    int32_t len = env->GetArrayLength(buf_);
-    jbyte *buf = env->GetByteArrayElements(buf_, NULL);
-    const char *returnValue = "test";
-    Synthesizer synth(sampleRate);
-    string toEncode = "5v030l\0";
-
-    int8_t framesPerSound = 10;
-    uint16_t frameSize = (uint16_t) (sampleRate * (RAMP_TIME + TOP_TIME) / 1000 / framesPerSound);
-
-
-    Decoder decoder(sampleRate, frameSize);
-    int frame = 0;
-    uint32_t n = 0;
-    int16_t buffer[frameSize];
-
-    while (n < len) {
-        uint32_t sz = n + frameSize < len ? frameSize : len - n;
-        for (int i = 0; i < sz; i++) {
-            buffer[i] = (int16_t) (buf[n + i] - 127);
-        }
-
-        decoder.processFrame(buffer, 0);
-
-        n += frameSize;
-        frame++;
-    }
-
-    string decoded = decoder.getMessage();
-
-    env->ReleaseByteArrayElements(buf_, buf, 0);
-
-    return env->NewStringUTF(returnValue);
-}
 
 extern "C" JNIEXPORT void JNICALL
 Java_viaphone_com_whistle_MainActivity_createBufferQueueAudioPlayer(JNIEnv *env,
@@ -384,7 +309,6 @@ Java_viaphone_com_whistle_MainActivity_createEngine(JNIEnv *env, jclass type) {
     }
 
 
-
 }
 
 void bqRecorderCallback(SLAndroidSimpleBufferQueueItf bq, void *context) {
@@ -397,7 +321,31 @@ void bqRecorderCallback(SLAndroidSimpleBufferQueueItf bq, void *context) {
     if (SL_RESULT_SUCCESS == res) {
         recorderSize = RECORDER_FRAMES * sizeof(short);
     }
+
+
     pthread_mutex_unlock(&audioEngineLock);
+
+    int8_t framesPerSound = 10;
+    uint16_t frameSize = (uint16_t) (sampleRate * (RAMP_TIME + TOP_TIME) / 1000 / framesPerSound);
+
+    Decoder decoder(sampleRate, frameSize);
+    int frame = 0;
+    uint32_t n = 0;
+    int16_t buffer[frameSize];
+    while (n < RECORDER_FRAMES) {
+        n++;
+        uint32_t sz = n + frameSize < frameSize ? frameSize : frameSize - n;
+        for (int i = 0; i < sz; i++) {
+            buffer[i] = (int16_t) (recorderBuffer[n + i] - 127);
+        }
+        decoder.processFrame(buffer, 0);
+
+        n += frameSize;
+        frame++;
+        string decoded = decoder.getMessage();
+        int w = 0;
+    }
+
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -411,10 +359,10 @@ Java_viaphone_com_whistle_MainActivity_startRecording(JNIEnv *env, jclass type) 
     // in case already recording, stop recording and clear buffer queue
     result = (*recorderRecord)->SetRecordState(recorderRecord, SL_RECORDSTATE_STOPPED);
     assert(SL_RESULT_SUCCESS == result);
-    (void)result;
+    (void) result;
     result = (*recorderBufferQueue)->Clear(recorderBufferQueue);
     assert(SL_RESULT_SUCCESS == result);
-    (void)result;
+    (void) result;
 
     // the buffer is not valid for playback yet
     recorderSize = 0;
@@ -426,19 +374,21 @@ Java_viaphone_com_whistle_MainActivity_startRecording(JNIEnv *env, jclass type) 
     // the most likely other result is SL_RESULT_BUFFER_INSUFFICIENT,
     // which for this code example would indicate a programming error
 
+
     assert(SL_RESULT_SUCCESS == result);
-    (void)result;
+    (void) result;
 
     // start recording
     result = (*recorderRecord)->SetRecordState(recorderRecord, SL_RECORDSTATE_RECORDING);
     assert(SL_RESULT_SUCCESS == result);
-    (void)result;
+    (void) result;
 
 }
 
-extern "C" JNIEXPORT jboolean JNICALL
-Java_viaphone_com_whistle_MainActivity_createAudioRecorder(JNIEnv *env, jclass type) {
 
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_viaphone_com_whistle_MainActivity_createAudioRecorder(JNIEnv *env, jclass type) {
     SLresult res;
 
     // configure audio source

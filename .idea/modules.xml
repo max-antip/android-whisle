@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/Whistle.iml" filepath="$PROJECT_DIR$/Whistle.iml" />
+      <module fileurl="file://$PROJECT_DIR$/android-whisle.iml" filepath="$PROJECT_DIR$/android-whisle.iml" />
       <module fileurl="file://$PROJECT_DIR$/app/app.iml" filepath="$PROJECT_DIR$/app/app.iml" />
     </modules>
   </component>
