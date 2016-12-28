@@ -14,35 +14,36 @@
         android:id="@+id/test_text"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/test_text"
-        android:inputType="text" />
+        android:inputType="text"
+        android:text="@string/test_text" />
+
     <Button
-        android:layout_below="@id/test_text"
         android:id="@+id/play_code"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/play"/>
+        android:layout_below="@+id/test_text"
+        android:layout_marginEnd="35dp"
+        android:layout_toStartOf="@+id/decode"
+        android:text="@string/play" />
+
 
     <Button
-        android:layout_below="@id/play_code"
         android:id="@+id/decode"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/decode"/>
+        android:layout_alignParentEnd="true"
+        android:layout_below="@+id/test_text"
+        android:layout_marginEnd="74dp"
+        android:text="@string/decode" />
 
-    <Button
-        android:layout_below="@id/decode"
-        android:id="@+id/play_record"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/play_record"/>
-
-    <rm.com.audiowave.AudioWaveView
-        android:layout_centerVertical="true"
-        android:id="@+id/wave"
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="100dp"
-        android:layout_margin="16dp"
-        />
+        android:layout_height="350dp"
+        android:layout_alignParentTop="true"
+        android:id="@+id/chartContainer"
+        android:layout_marginTop="120dp">
+    </FrameLayout>
+
+
 
 </RelativeLayout>
