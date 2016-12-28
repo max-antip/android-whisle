@@ -117,8 +117,6 @@ Java_viaphone_com_whistle_MainActivity_play(JNIEnv *env, jobject instance, jstri
     jbyteArray arr = env->NewByteArray(size);
     env->SetByteArrayRegion(arr, 0, size, samples);
     return arr;
-
-
 }
 
 
@@ -356,7 +354,7 @@ extern "C" JNIEXPORT void JNICALL
 Java_viaphone_com_whistle_MainActivity_startRecording(JNIEnv *env, jobject thiz) {
     __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, "Recording activated!");
 
-//    envRef = env;
+    envRef = env;
     thisRef = thiz;
 
 //    jsize sz = 200;
