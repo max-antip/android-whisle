@@ -13,19 +13,19 @@
 
 using namespace std;
 
-static SLAndroidSimpleBufferQueueItf bqPlayerBufferQueue;
-static pthread_mutex_t audioEngineLock = PTHREAD_MUTEX_INITIALIZER;
-static short *nextBuffer;
-static unsigned nextSize;
-static short *resampleBuf = NULL;
+SLAndroidSimpleBufferQueueItf bqPlayerBufferQueue;
+pthread_mutex_t audioEngineLock = PTHREAD_MUTEX_INITIALIZER;
+short *nextBuffer;
+unsigned nextSize;
+short *resampleBuf = NULL;
 SLObjectItf engineObject = NULL;
-static SLObjectItf outputMixObject = NULL;
-static SLEffectSendItf bqPlayerEffectSend;
-static SLVolumeItf bqPlayerVolume;
-static SLEnvironmentalReverbItf outputMixEnvironmentalReverb = NULL;
-static SLObjectItf recorderObject = NULL;
-static SLRecordItf recorderRecord;
-static SLAndroidSimpleBufferQueueItf recorderBufferQueue;
+SLObjectItf outputMixObject = NULL;
+SLEffectSendItf bqPlayerEffectSend;
+SLVolumeItf bqPlayerVolume;
+SLEnvironmentalReverbItf outputMixEnvironmentalReverb = NULL;
+SLObjectItf recorderObject = NULL;
+SLRecordItf recorderRecord;
+SLAndroidSimpleBufferQueueItf recorderBufferQueue;
 
 
 // aux effect on the output mix, used by the buffer queue player
@@ -33,26 +33,31 @@ static SLAndroidSimpleBufferQueueItf recorderBufferQueue;
 //        SL_I3DL2_ENVIRONMENT_PRESET_STONECORRIDOR;
 
 
-static SLmilliHertz bqPlayerSampleRate = 0;
+SLmilliHertz bqPlayerSampleRate = 0;
 //static jint bqPlayerBufSize = 0;
-static SLObjectItf bqPlayerObject = NULL;
-static SLPlayItf bqPlayerPlay;
-static SLEngineItf engineEngine;
-static int nextCount;
+SLObjectItf bqPlayerObject = NULL;
+SLPlayItf bqPlayerPlay;
+SLEngineItf engineEngine;
+int nextCount;
 
 //static const uint32_t sampleRate = 88200;
-static const uint32_t sampleRate = 44100;
-static const uint16_t frameSize = (uint16_t) (sampleRate * (RAMP_TIME + TOP_TIME) / 1000 / 10);
-static const int bufNum = 2;
-static short recorderBuffers[bufNum][frameSize];
-static int activeRecBuf = 0;
+const uint32_t sampleRate = 44100;
+const uint16_t frameSize = (uint16_t) (sampleRate * (RAMP_TIME + TOP_TIME) / 1000 / 10);
+const int bufNum = 2;
+short recorderBuffers[bufNum][frameSize];
+int activeRecBuf = 0;
 
-static Decoder decoder(sampleRate, frameSize);
+Decoder decoder(sampleRate, frameSize);
 
 JavaVM *gJvm = nullptr;
 jobject gClassLoader;
 jmethodID gFindClassMethod;
-jobject thisRef;
+
+//JNIEnv *envRef = nullptr;
+jobject jInstance;
+jmethodID jmid;
+jshortArray jsa;
+
 
 JNIEnv *getEnv() {
     JNIEnv *env;
@@ -65,24 +70,25 @@ JNIEnv *getEnv() {
     }
     return env;
 }
-
-jclass findClass(const char *name) {
-    return static_cast<jclass>(getEnv()->CallObjectMethod(gClassLoader, gFindClassMethod,
-                                                          getEnv()->NewStringUTF(name)));
-}
-
-
+//
+//jclass findClass(const char *name) {
+//    return static_cast<jclass>(getEnv()->CallObjectMethod(gClassLoader, gFindClassMethod,
+//                                                          getEnv()->NewStringUTF(name)));
+//}
+//
+//
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *pjvm, void *reserved) {
     gJvm = pjvm;  // cache the JavaVM pointer
     auto env = getEnv();
-    auto randomClass = env->FindClass("viaphone/com/whistle/MainActivity");
-    jclass classClass = env->GetObjectClass(randomClass);
-    auto classLoaderClass = env->FindClass("java/lang/ClassLoader");
-    auto getClassLoaderMethod = env->GetMethodID(classClass, "getClassLoader",
-                                                 "()Ljava/lang/ClassLoader;");
-    gClassLoader = env->CallObjectMethod(randomClass, getClassLoaderMethod);
-    gFindClassMethod = env->GetMethodID(classLoaderClass, "findClass",
-                                        "(Ljava/lang/String;)Ljava/lang/Class;");
+    jsa = reinterpret_cast<jshortArray>(env->NewGlobalRef(env->NewShortArray(frameSize)));
+//    auto randomClass = env->FindClass("viaphone/com/whistle/MainActivity");
+//    jclass classClass = env->GetObjectClass(randomClass);
+//    auto classLoaderClass = env->FindClass("java/lang/ClassLoader");
+//    auto getClassLoaderMethod = env->GetMethodID(classClass, "getClassLoader",
+//                                                 "()Ljava/lang/ClassLoader;");
+//    gClassLoader = env->CallObjectMethod(randomClass, getClassLoaderMethod);
+//    gFindClassMethod = env->GetMethodID(classLoaderClass, "findClass",
+//                                        "(Ljava/lang/String;)Ljava/lang/Class;");
     return JNI_VERSION_1_6;
 }
 
@@ -143,8 +149,9 @@ void bqPlayerCallback(SLAndroidSimpleBufferQueueItf bq, void *context) {
 
 extern "C" JNIEXPORT void JNICALL
 Java_viaphone_com_whistle_MainActivity_createBufferQueueAudioPlayer(JNIEnv *env,
-                                                                    jobject obj/*, jint sampleRate,
-                                                                    jint bufSize*/) {
+                                                                    jobject obj
+        /*, jint sampleRate,
+        jint bufSize*/) {
     SLresult result;
     bqPlayerSampleRate = sampleRate * 1000;
 //    if (sampleRate >= 0 && bufSize >= 0) {
@@ -302,7 +309,7 @@ void startOrContinueRecording() {
 //    recorderSize = 0;
 
     // enqueue an empty buffer to be filled by the recorder
-    // (for streaming recording, we would enqueue at least 2 empty buffers to start things off)
+    // (for streaming recording, we would enqueue at least 2 empty b jshortArray jsa = env->NewShortArray(frameSize);uffers to start things off)
     result = (*recorderBufferQueue)->Enqueue(recorderBufferQueue, recorderBuffers[activeRecBuf],
                                              frameSize * sizeof(short));
     // the most likely other result is SL_RESULT_BUFFER_INSUFFICIENT,
@@ -320,6 +327,21 @@ void startOrContinueRecording() {
 }
 
 
+void initInstance(JNIEnv *env, jobject inst) {
+//    if (jInstance.IsSameObject(inst)) return;
+    jInstance = reinterpret_cast<jobject>(env->NewGlobalRef(inst));
+    jclass cls = env->GetObjectClass(jInstance);
+    jmid = env->GetMethodID(cls, "appendChart", "([S)V");
+}
+
+
+void sendToDrawChart(short values[]) {
+    JNIEnv *env = getEnv();
+    env->SetShortArrayRegion(jsa, 0, frameSize, values);
+    env->CallVoidMethod(jInstance, jmid, jsa, frameSize);
+}
+
+
 void bqRecorderCallback(SLAndroidSimpleBufferQueueItf bq, void *context) {
     assert(bq == recorderBufferQueue);
     assert(NULL == context);
@@ -334,13 +356,7 @@ void bqRecorderCallback(SLAndroidSimpleBufferQueueItf bq, void *context) {
 
 //    LOGD("Got next frame, rec buf: %d", procBuf);
 
-    JNIEnv *env = getEnv();
-    jclass cls = findClass("MainActivity");
-    jshortArray jsa = env->NewShortArray(frameSize);
-    env->SetShortArrayRegion(jsa, 0, frameSize, recorderBuffers[procBuf]);
-//    jclass cls = env->GetObjectClass(thisRef);
-    jmethodID mid = env->GetStaticMethodID(cls, "appendChart", "([S)V");
-    env->CallStaticVoidMethod(cls, mid, jsa, frameSize);
+    sendToDrawChart(recorderBuffers[procBuf]);
 
 //    decoder.processFrame(recorderBuffers[procBuf]);
 //    string decoded = decoder.getMessage();
@@ -354,23 +370,11 @@ extern "C" JNIEXPORT void JNICALL
 Java_viaphone_com_whistle_MainActivity_startRecording(JNIEnv *env, jobject thiz) {
     __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, "Recording activated!");
 
-    envRef = env;
-    thisRef = thiz;
-
-//    jsize sz = 200;
-//    short vals[sz];
-//    for (short i = 0; i < sz; i++) {
-//        vals[i] = i;
-//    }
-////
-//    jshortArray jfa = env->NewShortArray(sz);
-//    env->SetShortArrayRegion(jfa, 0, sz, vals);
-//    jclass cls = env->GetObjectClass(thiz);
-//    jmethodID mid = env->GetMethodID(cls, "appendChart", "([S)V");
-//    env->CallVoidMethod(thiz, mid, jfa, sz);
+    initInstance(env, thiz);
 
     startOrContinueRecording();
 }
+
 
 
 extern "C"
