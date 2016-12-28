@@ -50,13 +50,9 @@ int activeRecBuf = 0;
 Decoder decoder(sampleRate, frameSize);
 
 JavaVM *gJvm = nullptr;
-jobject gClassLoader;
-jmethodID gFindClassMethod;
-
-//JNIEnv *envRef = nullptr;
-jobject jInstance;
-jmethodID jmid;
-jshortArray jsa;
+jobject jCallerInstance;
+jmethodID jShowSamplesMID;
+jshortArray jSamplesArray;
 
 
 JNIEnv *getEnv() {
@@ -70,25 +66,12 @@ JNIEnv *getEnv() {
     }
     return env;
 }
-//
-//jclass findClass(const char *name) {
-//    return static_cast<jclass>(getEnv()->CallObjectMethod(gClassLoader, gFindClassMethod,
-//                                                          getEnv()->NewStringUTF(name)));
-//}
-//
-//
+
+
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *pjvm, void *reserved) {
     gJvm = pjvm;  // cache the JavaVM pointer
     auto env = getEnv();
-    jsa = reinterpret_cast<jshortArray>(env->NewGlobalRef(env->NewShortArray(frameSize)));
-//    auto randomClass = env->FindClass("viaphone/com/whistle/MainActivity");
-//    jclass classClass = env->GetObjectClass(randomClass);
-//    auto classLoaderClass = env->FindClass("java/lang/ClassLoader");
-//    auto getClassLoaderMethod = env->GetMethodID(classClass, "getClassLoader",
-//                                                 "()Ljava/lang/ClassLoader;");
-//    gClassLoader = env->CallObjectMethod(randomClass, getClassLoaderMethod);
-//    gFindClassMethod = env->GetMethodID(classLoaderClass, "findClass",
-//                                        "(Ljava/lang/String;)Ljava/lang/Class;");
+    jSamplesArray = reinterpret_cast<jshortArray>(env->NewGlobalRef(env->NewShortArray(frameSize)));
     return JNI_VERSION_1_6;
 }
 
@@ -327,18 +310,21 @@ void startOrContinueRecording() {
 }
 
 
-void initInstance(JNIEnv *env, jobject inst) {
+void initJavaCallBacks(JNIEnv *env, jobject inst, jstring methodName, jstring signature) {
 //    if (jInstance.IsSameObject(inst)) return;
-    jInstance = reinterpret_cast<jobject>(env->NewGlobalRef(inst));
-    jclass cls = env->GetObjectClass(jInstance);
-    jmid = env->GetMethodID(cls, "appendChart", "([S)V");
+    jCallerInstance = reinterpret_cast<jobject>(env->NewGlobalRef(inst));
+    jclass cls = env->GetObjectClass(jCallerInstance);
+
+    const char* mn = env->GetStringUTFChars(methodName, NULL);
+    const char* sg = env->GetStringUTFChars(signature, NULL);
+    jShowSamplesMID = env->GetMethodID(cls, mn, sg);
 }
 
 
 void sendToDrawChart(short values[]) {
     JNIEnv *env = getEnv();
-    env->SetShortArrayRegion(jsa, 0, frameSize, values);
-    env->CallVoidMethod(jInstance, jmid, jsa, frameSize);
+    env->SetShortArrayRegion(jSamplesArray, 0, frameSize, values);
+    env->CallVoidMethod(jCallerInstance, jShowSamplesMID, jSamplesArray, frameSize);
 }
 
 
@@ -367,10 +353,12 @@ void bqRecorderCallback(SLAndroidSimpleBufferQueueItf bq, void *context) {
 
 
 extern "C" JNIEXPORT void JNICALL
-Java_viaphone_com_whistle_MainActivity_startRecording(JNIEnv *env, jobject thiz) {
+Java_viaphone_com_whistle_MainActivity_startRecording(JNIEnv *env, jobject thiz,
+                                                      jstring chartCBName,
+                                                      jstring signature) {
     __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, "Recording activated!");
 
-    initInstance(env, thiz);
+    initJavaCallBacks(env, thiz, chartCBName, signature);
 
     startOrContinueRecording();
 }

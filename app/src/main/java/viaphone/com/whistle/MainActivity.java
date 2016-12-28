@@ -6,7 +6,6 @@ import android.os.Bundle;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.Button;
@@ -15,9 +14,6 @@ import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import java.util.Arrays;
-import java.util.Random;
-import java.util.Timer;
-import java.util.TimerTask;
 
 
 public class MainActivity extends AppCompatActivity {
@@ -82,7 +78,10 @@ public class MainActivity extends AppCompatActivity {
 
         FrameLayout chartContainer = (FrameLayout) findViewById(R.id.chartContainer);
         if (chartContainer != null) {
-            chartView = new ChartView(chartContainer.getContext(), 500, ChartView.Type.LINE);
+            int samplesPerScreen = 44100 / 10;
+            chartView = new ChartView(chartContainer.getContext(), samplesPerScreen,
+                    ChartView.ChartType.LINE, ChartView.ScaleMode.FIXED_HEIGHT,
+                    -500, 500);
             chartContainer.addView(chartView);
         }
 
@@ -106,11 +105,6 @@ public class MainActivity extends AppCompatActivity {
 
 
     public void appendChart(short newval[]) {
-//        int sm = 0;
-//        for (short aNewval : newval) {
-//            sm += aNewval;
-//        }
-//        Log.v("Native call", "Sm: " + sm + ", sz: " + newval.length);
         chartView.appendSamples(newval);
         chartView.postInvalidate();
     }
@@ -123,7 +117,7 @@ public class MainActivity extends AppCompatActivity {
             created = createAudioRecorder();
         }
         if (created) {
-            startRecording();
+            startRecording("appendChart", "([S)V");
         }
     }
 
@@ -172,7 +166,7 @@ public class MainActivity extends AppCompatActivity {
 
     public native boolean createAudioRecorder();
 
-    public native void startRecording();
+    public native void startRecording(String chartCBName, String signature);
 
     public native void createBufferQueueAudioPlayer(/*int sampleRate, int samplesPerBuf*/);
 

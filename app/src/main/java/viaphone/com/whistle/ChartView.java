@@ -7,29 +7,36 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.view.View;
 
-import java.util.Arrays;
-
-import static java.lang.Math.min;
-
 
 public class ChartView extends View {
 
-    public enum Type {BAR, LINE}
+    public enum ChartType {BAR, LINE}
+
+    public enum ScaleMode {FIXED_HEIGHT, FRAME_SCALE}
 
     private final Paint paint;
-    private final Type type;
+    private final ChartType chartType;
+    private final ScaleMode scaleMode;
     private final int samplesPerScreen;
     private final short[] values;
     private int cursor;
+    private int fixedMin;
+    private int fixedMax;
 
     public ChartView(Context context) {
-        this(context, 500, Type.BAR);
+        this(context, 500, ChartType.BAR, ScaleMode.FRAME_SCALE, 0, 0);
     }
 
-    public ChartView(Context context, int samplesPerScreen, Type type) {
+    public ChartView(Context context, int samplesPerScreen,
+                     ChartType chartType,
+                     ScaleMode scaleMode,
+                     int fixedMin, int fixedMax) {
         super(context);
         this.samplesPerScreen = samplesPerScreen;
-        this.type = type;
+        this.chartType = chartType;
+        this.scaleMode = scaleMode;
+        this.fixedMin = fixedMin;
+        this.fixedMax = fixedMax;
         paint = new Paint();
         values = new short[samplesPerScreen];
         for (int i = 0; i < samplesPerScreen; i++) {
@@ -54,40 +61,31 @@ public class ChartView extends View {
             System.arraycopy(newvals, 0, values, 0, restSize);
             cursor = restSize;
         }
-
-
-//        int size, start;
-//        if (newvals.length < samplesPerScreen) {
-//            size = newvals.length;
-//        } else {
-//            size = samplesPerScreen;
-//        }
-//        start = samplesPerScreen - size;
-//        if (start > 0) {
-//            if (start > size) {
-//                System.arraycopy(values, start, values, start - size, size);
-//            } else {
-//                System.arraycopy(values, start, values, 0, size - start);
-//            }
-//        }
-//        System.arraycopy(newvals, 0, values, start, size);
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
         float border = 20;
         float horstart = border * 2;
-        float height = getHeight();
-        float width = getWidth() - 1;
-        float max = getMax();
-        float min = getMin();
-        float diff = max - min;
+        int height = getHeight();
+        int width = getWidth() - 1;
+        int min;
+        int max;
+        if (scaleMode == ScaleMode.FRAME_SCALE) {
+            min = getMin();
+            max = getMax();
+        } else {
+            min = fixedMin;
+            max = fixedMax;
+        }
+
+        int diff = max - min;
         float graphheight = height - (2 * border);
         float graphwidth = width - (2 * border);
 
         if (max != min) {
             paint.setColor(Color.LTGRAY);
-            if (type == Type.BAR) {
+            if (chartType == ChartType.BAR) {
                 float datalength = values.length;
                 float colwidth = (width - (2 * border)) / datalength;
 //                for (int i = 0; i < values.length; i++) {
@@ -118,19 +116,19 @@ public class ChartView extends View {
         }
     }
 
-    private float getMax() {
+    private short getMax() {
         if (values == null) return 0;
-        float largest = Integer.MIN_VALUE;
-        for (float value : values)
+        short largest = Short.MIN_VALUE;
+        for (short value : values)
             if (value > largest)
                 largest = value;
         return largest;
     }
 
-    private float getMin() {
+    private short getMin() {
         if (values == null) return 0;
-        float smallest = Integer.MAX_VALUE;
-        for (float value : values)
+        short smallest = Short.MAX_VALUE;
+        for (short value : values)
             if (value < smallest)
                 smallest = value;
         return smallest;
