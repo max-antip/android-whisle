@@ -52,6 +52,7 @@ Decoder decoder(sampleRate, frameSize);
 JavaVM *gJvm = nullptr;
 jobject jCallerInstance;
 jmethodID jShowSamplesMID;
+jmethodID jShowPitchesMID;
 jshortArray jSamplesArray;
 
 
@@ -310,21 +311,34 @@ void startOrContinueRecording() {
 }
 
 
-void initJavaCallBacks(JNIEnv *env, jobject inst, jstring methodName, jstring signature) {
+void initJavaCallBacks(JNIEnv *env, jobject inst,
+                       jstring drawSamplesMthd,
+                       jstring drawSamplesSign,
+                       jstring drawPitchesMthd,
+                       jstring drawPitchesSign) {
 //    if (jInstance.IsSameObject(inst)) return;
     jCallerInstance = reinterpret_cast<jobject>(env->NewGlobalRef(inst));
     jclass cls = env->GetObjectClass(jCallerInstance);
-
-    const char* mn = env->GetStringUTFChars(methodName, NULL);
-    const char* sg = env->GetStringUTFChars(signature, NULL);
-    jShowSamplesMID = env->GetMethodID(cls, mn, sg);
+    jShowSamplesMID = env->
+            GetMethodID(cls,
+                        env->GetStringUTFChars(drawSamplesMthd, NULL),
+                        env->GetStringUTFChars(drawSamplesSign, NULL));
+    jShowPitchesMID = env->
+            GetMethodID(cls,
+                        env->GetStringUTFChars(drawPitchesMthd, NULL),
+                        env->GetStringUTFChars(drawPitchesSign, NULL));
 }
 
 
-void sendToDrawChart(short values[]) {
+void jSendSamplesToDraw(short *samples) {
     JNIEnv *env = getEnv();
-    env->SetShortArrayRegion(jSamplesArray, 0, frameSize, values);
-    env->CallVoidMethod(jCallerInstance, jShowSamplesMID, jSamplesArray, frameSize);
+    env->SetShortArrayRegion(jSamplesArray, 0, frameSize, samples);
+    env->CallVoidMethod(jCallerInstance, jShowSamplesMID, jSamplesArray);
+}
+
+void jSendPitchToDraw(float pitch) {
+    JNIEnv *env = getEnv();
+    env->CallVoidMethod(jCallerInstance, jShowPitchesMID, pitch);
 }
 
 
@@ -342,23 +356,31 @@ void bqRecorderCallback(SLAndroidSimpleBufferQueueItf bq, void *context) {
 
 //    LOGD("Got next frame, rec buf: %d", procBuf);
 
-    sendToDrawChart(recorderBuffers[procBuf]);
+    jSendSamplesToDraw(recorderBuffers[procBuf]);
 
-//    decoder.processFrame(recorderBuffers[procBuf]);
-//    string decoded = decoder.getMessage();
-//    if (decoded.size() > 0) {
-//        LOGD("Decoded message: %s", decoded.c_str());
-//    }
+    float pitch = decoder.processFrame(recorderBuffers[procBuf]);
+    jSendPitchToDraw(pitch);
+
+    string decoded = decoder.getMessage();
+    if (decoded.size() > 0) {
+        LOGD("Decoded message: %s", decoded.c_str());
+    }
 }
 
 
 extern "C" JNIEXPORT void JNICALL
 Java_viaphone_com_whistle_MainActivity_startRecording(JNIEnv *env, jobject thiz,
-                                                      jstring chartCBName,
-                                                      jstring signature) {
+                                                      jstring drawSamplesMthd,
+                                                      jstring drawSamplesSign,
+                                                      jstring drawPitchesMthd,
+                                                      jstring drawPitchesSign) {
+
     __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, "Recording activated!");
 
-    initJavaCallBacks(env, thiz, chartCBName, signature);
+    initJavaCallBacks(env, thiz,
+                      drawSamplesMthd, drawSamplesSign,
+                      drawPitchesMthd, drawPitchesSign
+    );
 
     startOrContinueRecording();
 }

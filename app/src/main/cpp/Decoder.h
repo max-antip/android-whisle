@@ -20,7 +20,7 @@ class Decoder {
 public:
     Decoder(uint32_t sr, uint16_t frame);
 
-    void processFrame(int16_t *samples, uint32_t from = 0);
+    float processFrame(int16_t *samples, uint32_t from = 0);
 
     const std::string &getMessage() const;
 

@@ -13,8 +13,6 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.Toast;
 
-import java.util.Arrays;
-
 
 public class MainActivity extends AppCompatActivity {
 
@@ -24,7 +22,8 @@ public class MainActivity extends AppCompatActivity {
         System.loadLibrary("whistle-lib");
     }
 
-    private ChartView chartView;
+    private ChartView samplesChartView;
+    private ChartView pitchesChartView;
 
 
     @Override
@@ -53,9 +52,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 if (textView.getText().length() > 0) {
-                    byte[] result = play(textView.getText().toString());
-//                    waveChart.setRawData(result);
-                    System.out.println(Arrays.toString(result));
+                    play(textView.getText().toString());
                 }
             }
         });
@@ -70,19 +67,28 @@ public class MainActivity extends AppCompatActivity {
                 }
 
                 if (hasRecordAudioPermission()) {
-                    listenMessage();
+                    startRec();
                 }
             }
         });
 
+        int samplesPerScreen = 44100 / 10;
 
-        FrameLayout chartContainer = (FrameLayout) findViewById(R.id.chartContainer);
-        if (chartContainer != null) {
-            int samplesPerScreen = 44100 / 10;
-            chartView = new ChartView(chartContainer.getContext(), samplesPerScreen,
+        FrameLayout samplesContainer = (FrameLayout) findViewById(R.id.samplesChartContainer);
+        if (samplesContainer != null) {
+
+            samplesChartView = new ChartView(samplesContainer.getContext(), samplesPerScreen,
                     ChartView.ChartType.LINE, ChartView.ScaleMode.FIXED_HEIGHT,
                     -500, 500);
-            chartContainer.addView(chartView);
+            samplesContainer.addView(samplesChartView);
+        }
+        FrameLayout pitchesContainer = (FrameLayout) findViewById(R.id.pitchesChartContainer);
+        if (pitchesContainer != null) {
+            int size = samplesPerScreen / 385;
+            pitchesChartView = new ChartView(pitchesContainer.getContext(), size,
+                    ChartView.ChartType.BAR, ChartView.ScaleMode.FIXED_HEIGHT,
+                    -1, 15000);
+            pitchesContainer.addView(pitchesChartView);
         }
 
 //        final Random r = new Random();
@@ -96,28 +102,38 @@ public class MainActivity extends AppCompatActivity {
 //                for (int i = 0; i < len; i++) {
 //                    newval[i] = r.nextInt(100);
 //                }
-////                chartView.appendSamples(newval);
-////                chartView.postInvalidate();
+////                samplesChartView.appendValues(newval);
+////                samplesChartView.postInvalidate();
 //                MainActivity.this.appendChart(newval);
 //            }
 //        }, 0, 100);
     }
 
 
-    public void appendChart(short newval[]) {
-        chartView.appendSamples(newval);
-        chartView.postInvalidate();
+    public void appendSamples(short newSamples[]) {
+        samplesChartView.appendValues(newSamples);
+        samplesChartView.postInvalidate();
+    }
+
+    public void appendPitch(float pitch) {
+        short[] vals = new short[1];
+        vals[0] = (short) pitch;
+        pitchesChartView.appendValues(vals);
+        pitchesChartView.postInvalidate();
     }
 
     // Single out recording for run-permission needs
     static boolean created = false;
 
-    private void listenMessage() {
+    private void startRec() {
         if (!created) {
             created = createAudioRecorder();
         }
         if (created) {
-            startRecording("appendChart", "([S)V");
+            startRecording(
+                    "appendSamples", "([S)V",
+                    "appendPitch", "(F)V"
+            );
         }
     }
 
@@ -166,7 +182,8 @@ public class MainActivity extends AppCompatActivity {
 
     public native boolean createAudioRecorder();
 
-    public native void startRecording(String chartCBName, String signature);
+    public native void startRecording(String drawSamplesMthd, String drawSamplesSg,
+                                      String drawPithcesMthd, String drawPitchesSg);
 
     public native void createBufferQueueAudioPlayer(/*int sampleRate, int samplesPerBuf*/);
 

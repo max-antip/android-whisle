@@ -44,7 +44,7 @@ public class ChartView extends View {
         }
     }
 
-    public void appendSamples(short[] newvals) {
+    public void appendValues(short[] newvals) {
         int size;
         if (newvals.length < samplesPerScreen) {
             size = newvals.length;

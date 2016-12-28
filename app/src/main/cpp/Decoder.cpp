@@ -24,7 +24,7 @@ Decoder::Decoder(uint32_t sr, uint16_t frame) :
     sustainedFrames = (uint8_t) (sampleRate * TOP_TIME / 1000 / frameSize);
 }
 
-void Decoder::processFrame(int16_t *samples, uint32_t from) {
+float Decoder::processFrame(int16_t *samples, uint32_t from) {
     float pitch = detector.getPitch(samples, from, frameSize, DETECTOR_THRESHOLD);
     if (pitch > 0) {
         if (state == NONE) state = TRANSITION_FREQ;
@@ -59,7 +59,7 @@ void Decoder::processFrame(int16_t *samples, uint32_t from) {
             initCandidate(pitch);
         }
     }
-
+    return pitch;
 }
 
 
