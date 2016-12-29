@@ -17,18 +17,9 @@
         android:inputType="text"
         android:text="@string/test_text" />
 
-    <Button
-        android:id="@+id/play_code"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_below="@+id/test_text"
-        android:layout_marginEnd="35dp"
-        android:layout_toStartOf="@+id/decode"
-        android:text="@string/play" />
-
 
     <Button
-        android:id="@+id/decode"
+        android:id="@+id/listen_btn"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_alignParentEnd="true"
@@ -39,17 +30,27 @@
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="170dp"
-        android:layout_alignParentTop="true"
         android:id="@+id/samplesChartContainer"
-        android:layout_marginTop="120dp">
+        android:layout_above="@+id/pitchesChartContainer"
+        android:layout_alignParentStart="true">
     </FrameLayout>
+
+    <Button
+        android:id="@+id/play_code"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="30dp"
+        android:text="@string/play"
+        android:layout_below="@+id/test_text"
+        android:layout_toStartOf="@+id/listen_btn" />
 
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="170dp"
         android:id="@+id/pitchesChartContainer"
         android:layout_alignParentBottom="true"
-        android:layout_alignParentStart="true">
+        android:layout_alignParentStart="true"
+        android:layout_marginBottom="38dp">
     </FrameLayout>
 
 

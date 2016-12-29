@@ -1,11 +1,15 @@
 package viaphone.com.whistle;
 
 import android.Manifest;
+import android.content.Context;
 import android.content.pm.PackageManager;
+import android.media.AudioManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.Button;
@@ -13,10 +17,22 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.Toast;
 
+import static viaphone.com.whistle.ChartView.HorScaleMode.FIXED_WIDTH;
+import static viaphone.com.whistle.ChartView.HorScaleMode.ORIG;
+import static viaphone.com.whistle.ChartView.VerScaleMode.FIXED_HEIGHT;
+
 
 public class MainActivity extends AppCompatActivity {
 
+    public static final int DEFAULT_SAMPLE_RATE = 44100;
+    public static final int DEFAULT_FRAME_SIZE = 1024;
+    public static final int REPAINTS_PER_SECOND = 30;
+    public static final int MIN_REPAINT_DELAY = 1000 / REPAINTS_PER_SECOND;
+
     EditText textView;
+    int processed = 0;
+    long startMilis;
+    long lastRepaintMilis;
 
     static {
         System.loadLibrary("whistle-lib");
@@ -32,19 +48,20 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         textView = (EditText) findViewById(R.id.test_text);
 
-        createEngine();
+        int sampleRate = DEFAULT_SAMPLE_RATE;
+        int frameSize = DEFAULT_FRAME_SIZE;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+            AudioManager myAudioMgr = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            sampleRate = Integer.parseInt(myAudioMgr.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE));
+            frameSize = Integer.parseInt(myAudioMgr.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER));
+        }
+        if (!hasRecordAudioPermission()) {
+            requestRecordAudioPermission();
+        }
 
-//        int sampleRate = 44100;
-//        int bufSize = 0;
-
-//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-//            AudioManager myAudioMgr = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-//            String nativeParam = myAudioMgr.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE);
-////            sampleRate = Integer.parseInt(nativeParam);
-//            nativeParam = myAudioMgr.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER);
-////            bufSize = Integer.parseInt(nativeParam);
-//        }
-        createBufferQueueAudioPlayer(/*sampleRate, bufSize*/);
+        slInit(sampleRate, frameSize);
+        slInitJavaCallBacks("appendSamples", "([S)V",
+                "appendPitch", "(F)V");
 
         Button playBut = (Button) findViewById(R.id.play_code);
         assert playBut != null;
@@ -52,45 +69,44 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 if (textView.getText().length() > 0) {
-                    play(textView.getText().toString());
+                    slPlay(textView.getText().toString());
                 }
             }
         });
 
-        Button decodeBut = (Button) findViewById(R.id.decode);
+        Button decodeBut = (Button) findViewById(R.id.listen_btn);
         assert decodeBut != null;
         decodeBut.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (!hasRecordAudioPermission()) {
-                    requestRecordAudioPermission();
-                }
-
-                if (hasRecordAudioPermission()) {
-                    startRec();
-                }
+                slRecord();
             }
         });
 
-        int samplesPerScreen = 44100 / 10;
+//        int samplesPerScreen = sampleRate / 10;
+//        int samplesPerScreen = sampleRate / 4;
+        int samplesPerScreen = sampleRate * 5;
 
         FrameLayout samplesContainer = (FrameLayout) findViewById(R.id.samplesChartContainer);
         if (samplesContainer != null) {
-
+//            int ampl = 2500;
+            int ampl = 25000;
             samplesChartView = new ChartView(samplesContainer.getContext(), samplesPerScreen,
-                    ChartView.ChartType.LINE, ChartView.ScaleMode.FIXED_HEIGHT,
-                    -500, 500);
+                    ChartView.ChartType.LINE, FIXED_HEIGHT, FIXED_WIDTH,
+                    -ampl, ampl);
             samplesContainer.addView(samplesChartView);
         }
         FrameLayout pitchesContainer = (FrameLayout) findViewById(R.id.pitchesChartContainer);
         if (pitchesContainer != null) {
-            int size = samplesPerScreen / 385;
+            int size = samplesPerScreen / frameSize;
             pitchesChartView = new ChartView(pitchesContainer.getContext(), size,
-                    ChartView.ChartType.BAR, ChartView.ScaleMode.FIXED_HEIGHT,
-                    -1, 15000);
+                    ChartView.ChartType.BAR, FIXED_HEIGHT, ORIG,
+                    -1, 10000);
             pitchesContainer.addView(pitchesChartView);
         }
 
+        startMilis = System.currentTimeMillis();
+        lastRepaintMilis = startMilis;
 //        final Random r = new Random();
 //        final int len = 10;
 //        final float newval[] = new float[len];
@@ -109,12 +125,19 @@ public class MainActivity extends AppCompatActivity {
 //        }, 0, 100);
     }
 
-
+    @SuppressWarnings("unused")
     public void appendSamples(short newSamples[]) {
+        long now = System.currentTimeMillis();
+//        Log.d("MainActivity", "Shown: " + processed + ", time: " + (now - startMilis));
         samplesChartView.appendValues(newSamples);
-        samplesChartView.postInvalidate();
+        if (now - lastRepaintMilis > MIN_REPAINT_DELAY) {
+            samplesChartView.postInvalidate();
+            lastRepaintMilis = now;
+        }
+        processed++;
     }
 
+    @SuppressWarnings("unused")
     public void appendPitch(float pitch) {
         short[] vals = new short[1];
         vals[0] = (short) pitch;
@@ -123,26 +146,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // Single out recording for run-permission needs
-    static boolean created = false;
 
-    private void startRec() {
-        if (!created) {
-            created = createAudioRecorder();
-        }
-        if (created) {
-            startRecording(
-                    "appendSamples", "([S)V",
-                    "appendPitch", "(F)V"
-            );
-        }
-    }
 
     private boolean hasRecordAudioPermission() {
-        boolean hasPermission = (ContextCompat.checkSelfPermission(this,
+        return (ContextCompat.checkSelfPermission(this,
                 Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED);
-
-//        log("Has RECORD_AUDIO permission? " + hasPermission);
-        return hasPermission;
     }
 
     int PERMISSIONS_REQUEST_RECORD_AUDIO = 1;
@@ -176,15 +184,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-    public native byte[] play(String mess);
+    public native void slInit(int sampleRate, int frameSize);
 
-    public native void createEngine();
+    public native void slInitJavaCallBacks(String drawSamplesMthd, String drawSamplesSg,
+                                           String drawPithcesMthd, String drawPitchesSg);
 
-    public native boolean createAudioRecorder();
+    public native byte[] slPlay(String mess);
 
-    public native void startRecording(String drawSamplesMthd, String drawSamplesSg,
-                                      String drawPithcesMthd, String drawPitchesSg);
+    public native void slRecord();
 
-    public native void createBufferQueueAudioPlayer(/*int sampleRate, int samplesPerBuf*/);
 
 }
