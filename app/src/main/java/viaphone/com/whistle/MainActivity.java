@@ -9,7 +9,6 @@ import android.os.Bundle;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.Button;
@@ -25,7 +24,7 @@ import static viaphone.com.whistle.ChartView.VerScaleMode.FIXED_HEIGHT;
 public class MainActivity extends AppCompatActivity {
 
     public static final int DEFAULT_SAMPLE_RATE = 44100;
-    public static final int DEFAULT_FRAME_SIZE = 1024;
+    public static final int DEFAULT_BUFSIZE = 1024;
     public static final int REPAINTS_PER_SECOND = 30;
     public static final int MIN_REPAINT_DELAY = 1000 / REPAINTS_PER_SECOND;
 
@@ -49,19 +48,16 @@ public class MainActivity extends AppCompatActivity {
         textView = (EditText) findViewById(R.id.test_text);
 
         int sampleRate = DEFAULT_SAMPLE_RATE;
-        int frameSize = DEFAULT_FRAME_SIZE;
+        int bufSize = DEFAULT_BUFSIZE;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
             AudioManager myAudioMgr = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
             sampleRate = Integer.parseInt(myAudioMgr.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE));
-            frameSize = Integer.parseInt(myAudioMgr.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER));
+//            bufSize = Integer.parseInt(myAudioMgr.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER));
         }
         if (!hasRecordAudioPermission()) {
             requestRecordAudioPermission();
         }
 
-        slInit(sampleRate, frameSize);
-        slInitJavaCallBacks("appendSamples", "([S)V",
-                "appendPitch", "(F)V");
 
         Button playBut = (Button) findViewById(R.id.play_code);
         assert playBut != null;
@@ -69,7 +65,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 if (textView.getText().length() > 0) {
-                    slPlay(textView.getText().toString());
+//                    slPlay(textView.getText().toString());
                 }
             }
         });
@@ -79,13 +75,18 @@ public class MainActivity extends AppCompatActivity {
         decodeBut.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                slRecord();
+//                slRecord();
+
+                slInit(DEFAULT_SAMPLE_RATE, DEFAULT_BUFSIZE,
+                        "appendSamples", "([S)V",
+                        "appendPitch", "(F)V"
+                );
             }
         });
 
 //        int samplesPerScreen = sampleRate / 10;
 //        int samplesPerScreen = sampleRate / 4;
-        int samplesPerScreen = sampleRate * 5;
+        int samplesPerScreen = sampleRate * 3;
 
         FrameLayout samplesContainer = (FrameLayout) findViewById(R.id.samplesChartContainer);
         if (samplesContainer != null) {
@@ -98,7 +99,8 @@ public class MainActivity extends AppCompatActivity {
         }
         FrameLayout pitchesContainer = (FrameLayout) findViewById(R.id.pitchesChartContainer);
         if (pitchesContainer != null) {
-            int size = samplesPerScreen / frameSize;
+//            int size = sampleRate / slGetDecFrameSize();
+            int size = sampleRate / 385;
             pitchesChartView = new ChartView(pitchesContainer.getContext(), size,
                     ChartView.ChartType.BAR, FIXED_HEIGHT, ORIG,
                     -1, 10000);
@@ -123,6 +125,7 @@ public class MainActivity extends AppCompatActivity {
 //                MainActivity.this.appendChart(newval);
 //            }
 //        }, 0, 100);
+
     }
 
     @SuppressWarnings("unused")
@@ -184,14 +187,17 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-    public native void slInit(int sampleRate, int frameSize);
+    public native void slInit(int sampleRate, int bufSize, String drawSamplesMthd, String drawSamplesSg,
+                              String drawPithcesMthd, String drawPitchesSg);
 
-    public native void slInitJavaCallBacks(String drawSamplesMthd, String drawSamplesSg,
-                                           String drawPithcesMthd, String drawPitchesSg);
-
-    public native byte[] slPlay(String mess);
-
-    public native void slRecord();
+//    public native void slInitJavaCallBacks(String drawSamplesMthd, String drawSamplesSg,
+//                                           String drawPithcesMthd, String drawPitchesSg);
+//
+//    public native byte[] slPlay(String mess);
+//
+//    public native void slRecord();
+//
+//    public native int slGetDecFrameSize();
 
 
 }

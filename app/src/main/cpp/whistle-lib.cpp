@@ -7,51 +7,56 @@
 #include <android/log.h>
 #include <assert.h>
 
+
 #define  LOG_TAG    "WHISTLE-LIB"
 #define  LOGD(...)  __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define  LOGE(...)  __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 using namespace std;
 
-SLAndroidSimpleBufferQueueItf bqPlayerBufferQueue;
-pthread_mutex_t audioEngineLock = PTHREAD_MUTEX_INITIALIZER;
 
-SLObjectItf engineObject = NULL;
-SLObjectItf outputMixObject = NULL;
-SLEffectSendItf bqPlayerEffectSend;
-SLVolumeItf bqPlayerVolume;
-SLObjectItf recorderObject = NULL;
-SLRecordItf recorderItf;
-SLAndroidSimpleBufferQueueItf recBufQueue;
-SLmilliHertz bqSampleRateMillis = 0;
-SLObjectItf bqPlayerObject = NULL;
-SLPlayItf bqPlayerItf;
-SLEngineItf engineItf;
+struct OpenSLConf {
+    SLAndroidSimpleBufferQueueItf bqPlayerBufferQueue;
+    pthread_mutex_t audioEngineLock;
 
+    SLObjectItf engineObject;
+    SLObjectItf outputMixObject;
+    SLVolumeItf bqPlayerVolume;
+    SLObjectItf recorderObject;
+    SLRecordItf recorderItf;
+    SLAndroidSimpleBufferQueueItf recBufQueue;
+    SLmilliHertz bqSampleRateMillis;
+    SLObjectItf bqPlayerObject;
+    SLPlayItf bqPlayerItf;
+    SLEngineItf engineItf;
+    SLuint32 numBuffers;
+};
 
-//short *nextBuffer;
-//unsigned nextSize;
-//int nextCount;
+struct JCallBacks {
+    jobject jCallerInstance;
+    jmethodID jShowSamplesMID;
+    jmethodID jShowPitchesMID;
+    jshortArray jSamplesArray;
+};
 
-const int gBufNum = 2;
+struct WhistleContext {
 
-uint32_t gSampleRate;
-uint16_t gFrameSize;
-short **gRecBuffers;
-int gCurrBuf = 0;
-int gProcessed = 0;
+    uint32_t sampleRate;
+    uint16_t recBufSize;
+    uint16_t decFrameSize;
+    short **recBuffers;
+    short *decTmpBuf;
+    int tmpBufCur;
+    int currBuf;
 
-//Decoder decoder(sampleRate, frameSize);
-Decoder *gDecoder = nullptr;
+    OpenSLConf *sl;
+    Decoder *decoder;
+    Synthesizer *synth;
+    JCallBacks *jCallBacks;
+};
+
 
 JavaVM *gJvm = nullptr;
-jobject jCallerInstance;
-jmethodID jShowSamplesMID;
-jmethodID jShowPitchesMID;
-jshortArray jSamplesArray;
-
-time_t recordStart;
-
 
 JNIEnv *getEnv() {
     JNIEnv *env;
@@ -73,103 +78,126 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *pjvm, void *reserved) {
 }
 
 
-extern "C" JNIEXPORT jbyteArray JNICALL
-Java_viaphone_com_whistle_MainActivity_slPlay(JNIEnv *env, jobject instance, jstring str_) {
+void play(JNIEnv *env, jobject instance, jstring str_, WhistleContext *c) {
 
     const char *mes = env->GetStringUTFChars(str_, JNI_FALSE);
-
-    Synthesizer synth(gSampleRate);
-
-    uint32_t size = (uint32_t) (strlen(mes) * (gSampleRate * (TOP_TIME + RAMP_TIME) / 1000)) + 1;
+    uint32_t size = (uint32_t) (strlen(mes) * (c->sampleRate * (TOP_TIME + RAMP_TIME) / 1000)) + 1;
     int8_t samples[size];
 
-    uint32_t gen = synth.generate(samples, size, mes);
-    if (pthread_mutex_trylock(&audioEngineLock)) {
+    uint32_t gen = c->synth->generate(samples, size, mes);
+    if (pthread_mutex_trylock(&(c->sl->audioEngineLock))) {
         // If we could not acquire audio engine lock, reject this request and client should re-try
-        return JNI_FALSE;
+//        return JNI_FALSE;
     }
 
-    SLresult result = (*bqPlayerBufferQueue)->Enqueue(bqPlayerBufferQueue, (short *) samples, gen);
+    SLresult result = (*c->sl->bqPlayerBufferQueue)->Enqueue(c->sl->bqPlayerBufferQueue,
+                                                             (short *) samples,
+                                                             gen);
 
     if (SL_RESULT_SUCCESS != result) {
-        pthread_mutex_unlock(&audioEngineLock);
-        return JNI_FALSE;
+        pthread_mutex_unlock(&(c->sl->audioEngineLock));
+//        return JNI_FALSE;
     }
     jbyteArray arr = env->NewByteArray(size);
     env->SetByteArrayRegion(arr, 0, size, samples);
-    return arr;
+//    return arr;
 }
 
 
 void bqPlayerCallback(SLAndroidSimpleBufferQueueItf bq, void *context) {
-    assert(bq == bqPlayerBufferQueue);
+    WhistleContext *c = (WhistleContext *) context;
+    assert(bq == c->sl->bqPlayerBufferQueue);
     assert(NULL == context);
-    pthread_mutex_unlock(&audioEngineLock);
+    pthread_mutex_unlock(&(c->sl->audioEngineLock));
 }
 
 
-void startOrContinueRecording() {
+void startOrContinueRecording(WhistleContext *c) {
     SLresult result;
 
-    if (pthread_mutex_trylock(&audioEngineLock)) {
+    OpenSLConf *sl = c->sl;
+
+    if (pthread_mutex_trylock(&(sl->audioEngineLock))) {
         return;
     }
     // in case already recording, stop recording and clear buffer queue
-    result = (*recorderItf)->SetRecordState(recorderItf, SL_RECORDSTATE_STOPPED);
+    result = (*sl->recorderItf)->SetRecordState(sl->recorderItf, SL_RECORDSTATE_STOPPED);
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
-    result = (*recBufQueue)->Clear(recBufQueue);
+    result = (*(sl->recBufQueue))->Clear(sl->recBufQueue);
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
-    result = (*recBufQueue)->Enqueue(recBufQueue,
-                                     gRecBuffers[gCurrBuf],
-                                     gFrameSize * sizeof(short));
+    result = (*(sl->recBufQueue))->Enqueue(sl->recBufQueue,
+                                           c->recBuffers[c->currBuf],
+                                           c->recBufSize * sizeof(short));
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
     // start recording
-    result = (*recorderItf)->SetRecordState(recorderItf, SL_RECORDSTATE_RECORDING);
+    result = (*sl->recorderItf)->SetRecordState(sl->recorderItf, SL_RECORDSTATE_RECORDING);
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
 }
 
 
-void jSendSamplesToDraw(short *samples) {
+void jSendSamplesToDraw(short *samples, WhistleContext *c) {
     JNIEnv *env = getEnv();
-    env->SetShortArrayRegion(jSamplesArray, 0, gFrameSize, samples);
-    env->CallVoidMethod(jCallerInstance, jShowSamplesMID, jSamplesArray);
+    env->SetShortArrayRegion(c->jCallBacks->jSamplesArray, 0, c->recBufSize, samples);
+    env->CallVoidMethod(c->jCallBacks->jCallerInstance, c->jCallBacks->jShowSamplesMID,
+                        c->jCallBacks->jSamplesArray);
 }
 
-void jSendPitchToDraw(float pitch) {
+void jSendPitchToDraw(float pitch, WhistleContext *c) {
     JNIEnv *env = getEnv();
-    env->CallVoidMethod(jCallerInstance, jShowPitchesMID, pitch);
+    env->CallVoidMethod(c->jCallBacks->jCallerInstance, c->jCallBacks->jShowPitchesMID, pitch);
 }
 
 
 void bqRecorderCallback(SLAndroidSimpleBufferQueueItf bq, void *context) {
-    assert(bq == recBufQueue);
-    assert(NULL == context);
+//    assert(NULL == context);
+    WhistleContext *c = (WhistleContext *) context;
+    OpenSLConf *sl = c->sl;
+    assert(bq == sl->recBufQueue);
 
+    pthread_mutex_unlock(&(sl->audioEngineLock));
 
-    pthread_mutex_unlock(&audioEngineLock);
+    int procBuf = c->currBuf;
+    c->currBuf = (c->currBuf + 1) % sl->numBuffers;
 
-    int procBuf = gCurrBuf;
-    gCurrBuf = (gCurrBuf + 1) % gBufNum;
+    startOrContinueRecording(c);
 
-    startOrContinueRecording();
+    short *samples = c->recBuffers[procBuf];
+    jSendSamplesToDraw(samples, c);
 
-    short *samples = gRecBuffers[procBuf];
-    jSendSamplesToDraw(samples);
+    if (c->decoder) {
+        uint32_t from = 0;
+        if (c->tmpBufCur > 0) {
+            std::copy(samples, samples + c->decFrameSize - c->tmpBufCur,
+                      c->decTmpBuf + c->tmpBufCur);
+            float pitch = c->decoder->processFrame(samples, from);
+            jSendPitchToDraw(pitch, c);
+            from += c->decFrameSize - c->tmpBufCur;
+            c->tmpBufCur = 0;
+        }
 
-    if (gDecoder) {
-        float pitch = gDecoder->processFrame(samples);
-        jSendPitchToDraw(pitch);
+        for (; ;) {
+            float pitch = c->decoder->processFrame(samples, from);
+            jSendPitchToDraw(pitch, c);
 
-        string decoded = gDecoder->getMessage();
-        if (decoded.size() > 0) {
+            string decoded = c->decoder->getMessage();
+            if (decoded.size() > 0) {
 //            LOGD("Decoded message: %s", decoded.c_str());
+            }
+
+            if (from + c->decFrameSize < c->recBufSize) {
+                from += c->decFrameSize;
+            } else {
+                std::copy(samples + from, samples + c->decFrameSize, c->decTmpBuf);
+                c->tmpBufCur = c->decFrameSize - from;
+                break;
+            }
         }
     }
 
@@ -178,66 +206,79 @@ void bqRecorderCallback(SLAndroidSimpleBufferQueueItf bq, void *context) {
 
 
 extern "C" JNIEXPORT void JNICALL
-Java_viaphone_com_whistle_MainActivity_slRecord(JNIEnv *env, jobject obj) {
-
-    __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, "Recording activated!");
-    startOrContinueRecording();
-    recordStart = time(0);
-}
-
-
-
-
-extern "C" JNIEXPORT void JNICALL
 Java_viaphone_com_whistle_MainActivity_slInit(JNIEnv *env,
                                               jobject instance,
                                               jint jsampleRate,
-                                              jint jframeSize) {
+                                              jint jbufSize,
+                                              jstring drawSamplesMthd,
+                                              jstring drawSamplesSign,
+                                              jstring drawPitchesMthd,
+                                              jstring drawPitchesSign) {
 
-    gSampleRate = (uint32_t) jsampleRate;
-    bqSampleRateMillis = gSampleRate * 1000;
-//    int framesPerSound = 10;
-//    gFrameSize = (uint16_t) (gSampleRate * (RAMP_TIME + TOP_TIME) / 1000 / framesPerSound);
-    gFrameSize = (uint16_t) jframeSize;
-    gDecoder = new Decoder(gSampleRate, gFrameSize);
+    WhistleContext *c;
+    c = (WhistleContext *) calloc(sizeof(WhistleContext), 1);
 
-    gRecBuffers = (short **) malloc(gBufNum * sizeof(short *));
-    for (int buf = 0; buf < gBufNum; buf++) {
-        gRecBuffers[buf] = (short *) malloc(sizeof(short) * gFrameSize);
-        for (int i = 0; i < gFrameSize; i++) {
-            gRecBuffers[buf][i] = 0;
+    c->sampleRate = (uint32_t) jsampleRate;
+
+    OpenSLConf *sl;
+    sl = (OpenSLConf *) calloc(sizeof(OpenSLConf), 1);
+
+
+    sl->bqSampleRateMillis = c->sampleRate * 1000;
+    sl->numBuffers = 2;
+    c->synth = new Synthesizer(c->sampleRate);
+
+    uint16_t sdnSymLen = (uint16_t) (c->sampleRate * (RAMP_TIME + TOP_TIME) / 1000);
+    int framesPerSound = 10;
+    c->decFrameSize = (uint16_t) (sdnSymLen / framesPerSound);
+    c->recBufSize = (uint16_t) jbufSize;
+    c->decoder = new Decoder(c->sampleRate, c->decFrameSize);
+
+    c->recBuffers = (short **) malloc(sl->numBuffers * sizeof(short *));
+    for (int buf = 0; buf < sl->numBuffers; buf++) {
+        c->recBuffers[buf] = (short *) malloc(sizeof(short) * c->recBufSize);
+        for (int i = 0; i < c->recBufSize; i++) {
+            c->recBuffers[buf][i] = 0;
         }
     }
+    c->currBuf = 0;
 
-    LOGD("SL Init: sample rate: %d", gSampleRate);
-    LOGD("SL Init: frame size: %d", gFrameSize);
+    c->decTmpBuf = (short *) malloc(sizeof(short) * c->decFrameSize);
+    for (int i = 0; i < c->recBufSize; i++) {
+        c->decTmpBuf[i] = 0;
+    }
+    c->tmpBufCur = 0;
+
+
+    LOGD("SL Init: sample rate: %d", c->sampleRate);
+    LOGD("SL Init: frame size: %d", c->recBufSize);
 
     //-----------------------------------------------
 
     SLresult result;
 
-    result = slCreateEngine(&engineObject, 0, NULL, 0, NULL, NULL);
+    result = slCreateEngine(&(sl->engineObject), 0, NULL, 0, NULL, NULL);
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
-    result = (*engineObject)->Realize(engineObject, SL_BOOLEAN_FALSE);
+    result = (*(sl->engineObject))->Realize(sl->engineObject, SL_BOOLEAN_FALSE);
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
     // get the engine interface, which is needed in order to create other objects
-    result = (*engineObject)->GetInterface(engineObject, SL_IID_ENGINE, &engineItf);
+    result = (*(sl->engineObject))->GetInterface(sl->engineObject, SL_IID_ENGINE, &(sl->engineItf));
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
     // create output mix, with environmental reverb specified as a non-required interface
     const SLInterfaceID ids[1] = {SL_IID_ENVIRONMENTALREVERB};
     const SLboolean req[1] = {SL_BOOLEAN_FALSE};
-    result = (*engineItf)->CreateOutputMix(engineItf, &outputMixObject, 1, ids, req);
+    result = (*sl->engineItf)->CreateOutputMix(sl->engineItf, &(sl->outputMixObject), 1, ids, req);
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
     // realize the output mix
-    result = (*outputMixObject)->Realize(outputMixObject, SL_BOOLEAN_FALSE);
+    result = (*sl->outputMixObject)->Realize(sl->outputMixObject, SL_BOOLEAN_FALSE);
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
@@ -245,7 +286,7 @@ Java_viaphone_com_whistle_MainActivity_slInit(JNIEnv *env,
     SLDataLocator_AndroidSimpleBufferQueue loc_bufq = {SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, 2};
     SLDataFormat_PCM format_pcm = {SL_DATAFORMAT_PCM,
                                    1,
-                                   bqSampleRateMillis,
+                                   sl->bqSampleRateMillis,
                                    SL_PCMSAMPLEFORMAT_FIXED_16,
                                    SL_PCMSAMPLEFORMAT_FIXED_16,
                                    SL_SPEAKER_FRONT_CENTER,
@@ -254,58 +295,66 @@ Java_viaphone_com_whistle_MainActivity_slInit(JNIEnv *env,
      * Enable Fast Audio when possible:  once we set the same rate to be the native, fast audio path
      * will be triggered
      */
-    format_pcm.samplesPerSec = bqSampleRateMillis / 2;       //sample rate in milliseconds
-//    format_pcm.bitsPerSample = 16;
+//    format_pcm.samplesPerSec = bqSampleRateMillis /*/ 2*/;       //sample rate in milliseconds
     SLDataSource audioSrc = {&loc_bufq, &format_pcm};
 
     // configure audio sink
-    SLDataLocator_OutputMix loc_outmix = {SL_DATALOCATOR_OUTPUTMIX, outputMixObject};
+    SLDataLocator_OutputMix loc_outmix = {SL_DATALOCATOR_OUTPUTMIX, sl->outputMixObject};
     SLDataSink audioSnk = {&loc_outmix, NULL};
 
     const SLInterfaceID apids[3] = {SL_IID_BUFFERQUEUE, SL_IID_VOLUME};
     const SLboolean apreq[3] = {SL_BOOLEAN_TRUE, SL_BOOLEAN_TRUE};
 
-    result = (*engineItf)->CreateAudioPlayer(engineItf, &bqPlayerObject, &audioSrc, &audioSnk,
-                                             bqSampleRateMillis ? 2 : 3, apids, apreq);
+    result = (*sl->engineItf)->CreateAudioPlayer(sl->engineItf, &(sl->bqPlayerObject), &audioSrc,
+                                                 &audioSnk,
+                                                 sl->bqSampleRateMillis ? 2 : 3, apids, apreq);
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
-    result = (*bqPlayerObject)->Realize(bqPlayerObject, SL_BOOLEAN_FALSE);
+    result = (*sl->bqPlayerObject)->Realize(sl->bqPlayerObject, SL_BOOLEAN_FALSE);
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
-    result = (*bqPlayerObject)->GetInterface(bqPlayerObject, SL_IID_PLAY, &bqPlayerItf);
+    result = (*sl->bqPlayerObject)->GetInterface(sl->bqPlayerObject, SL_IID_PLAY,
+                                                 &(sl->bqPlayerItf));
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
-    result = (*bqPlayerObject)->GetInterface(bqPlayerObject, SL_IID_BUFFERQUEUE,
-                                             &bqPlayerBufferQueue);
+    result = (*sl->bqPlayerObject)->GetInterface(sl->bqPlayerObject, SL_IID_BUFFERQUEUE,
+                                                 &(sl->bqPlayerBufferQueue));
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
-    result = (*bqPlayerBufferQueue)->RegisterCallback(bqPlayerBufferQueue, bqPlayerCallback, NULL);
+    result = (*sl->bqPlayerBufferQueue)->RegisterCallback(sl->bqPlayerBufferQueue,
+                                                          bqPlayerCallback, c);
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
-    result = (*bqPlayerObject)->GetInterface(bqPlayerObject, SL_IID_VOLUME, &bqPlayerVolume);
+    result = (*sl->bqPlayerObject)->GetInterface(sl->bqPlayerObject, SL_IID_VOLUME,
+                                                 &(sl->bqPlayerVolume));
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
-    result = (*bqPlayerItf)->SetPlayState(bqPlayerItf, SL_PLAYSTATE_PLAYING);
+    result = (*sl->bqPlayerItf)->SetPlayState(sl->bqPlayerItf, SL_PLAYSTATE_PLAYING);
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
 
     //-------------------------------------------
 
-    SLDataLocator_IODevice loc_dev = {SL_DATALOCATOR_IODEVICE, SL_IODEVICE_AUDIOINPUT,
-                                      SL_DEFAULTDEVICEID_AUDIOINPUT, NULL};
+    SLDataLocator_IODevice loc_dev = {SL_DATALOCATOR_IODEVICE,
+                                      SL_IODEVICE_AUDIOINPUT,
+                                      SL_DEFAULTDEVICEID_AUDIOINPUT,
+                                      NULL};
     SLDataSource recAudioSrc = {&loc_dev, NULL};
 
-    SLDataLocator_AndroidSimpleBufferQueue loc_bq = {SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, 2};
+    SLDataLocator_AndroidSimpleBufferQueue loc_bq = {
+            SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE,
+            (SLuint32) sl->numBuffers};
+    SLuint32 channels = 1;
     SLDataFormat_PCM recFormat_pcm = {SL_DATAFORMAT_PCM,
-                                      1,
-                                      bqSampleRateMillis,
+                                      channels,
+                                      sl->bqSampleRateMillis,
                                       SL_PCMSAMPLEFORMAT_FIXED_16,
                                       SL_PCMSAMPLEFORMAT_FIXED_16,
                                       SL_SPEAKER_FRONT_CENTER,
@@ -314,49 +363,54 @@ Java_viaphone_com_whistle_MainActivity_slInit(JNIEnv *env,
 
     const SLInterfaceID recId[1] = {SL_IID_ANDROIDSIMPLEBUFFERQUEUE};
     const SLboolean recReq[1] = {SL_BOOLEAN_TRUE};
-    result = (*engineItf)->CreateAudioRecorder(engineItf, &recorderObject, &recAudioSrc,
-                                               &recAudioSnk, 1, recId, recReq);
+    result = (*sl->engineItf)->CreateAudioRecorder(sl->engineItf, &(sl->recorderObject),
+                                                   &recAudioSrc,
+                                                   &recAudioSnk, 1, recId, recReq);
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
-    result = (*recorderObject)->Realize(recorderObject, SL_BOOLEAN_FALSE);
+    result = (*sl->recorderObject)->Realize(sl->recorderObject, SL_BOOLEAN_FALSE);
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
-    result = (*recorderObject)->GetInterface(recorderObject, SL_IID_RECORD, &recorderItf);
+    result = (*sl->recorderObject)->GetInterface(sl->recorderObject, SL_IID_RECORD,
+                                                 &(sl->recorderItf));
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
-    result = (*recorderObject)->GetInterface(recorderObject, SL_IID_ANDROIDSIMPLEBUFFERQUEUE,
-                                             &recBufQueue);
+    result = (*sl->recorderObject)->GetInterface(sl->recorderObject,
+                                                 SL_IID_ANDROIDSIMPLEBUFFERQUEUE,
+                                                 &(sl->recBufQueue));
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
 
-    result = (*recBufQueue)->RegisterCallback(recBufQueue, bqRecorderCallback, NULL);
+    result = (*sl->recBufQueue)->RegisterCallback(sl->recBufQueue, bqRecorderCallback, c);
     assert(SL_RESULT_SUCCESS == result);
     (void) result;
-}
 
+    // ---------------------------
 
-extern "C" JNIEXPORT void JNICALL
-Java_viaphone_com_whistle_MainActivity_slInitJavaCallBacks(JNIEnv *env, jobject inst,
-                                                           jstring drawSamplesMthd,
-                                                           jstring drawSamplesSign,
-                                                           jstring drawPitchesMthd,
-                                                           jstring drawPitchesSign) {
-    jCallerInstance = reinterpret_cast<jobject>(env->NewGlobalRef(inst));
-    jclass cls = env->GetObjectClass(jCallerInstance);
-    jShowSamplesMID = env->
+    JCallBacks *jcb = (JCallBacks *) calloc(sizeof(JCallBacks), 1);
+    jcb->jCallerInstance = reinterpret_cast<jobject>(env->NewGlobalRef(instance));
+    jclass cls = env->GetObjectClass(jcb->jCallerInstance);
+    jcb->jShowSamplesMID = env->
             GetMethodID(cls,
                         env->GetStringUTFChars(drawSamplesMthd, NULL),
                         env->GetStringUTFChars(drawSamplesSign, NULL));
-    jShowPitchesMID = env->
+    jcb->jShowPitchesMID = env->
             GetMethodID(cls,
                         env->GetStringUTFChars(drawPitchesMthd, NULL),
                         env->GetStringUTFChars(drawPitchesSign, NULL));
 
-    jSamplesArray = reinterpret_cast<jshortArray>(env->NewGlobalRef(
-            env->NewShortArray(gFrameSize)));
+    jcb->jSamplesArray = reinterpret_cast<jshortArray>(env->NewGlobalRef(
+            env->NewShortArray(c->recBufSize)));
+
+    // ----------------------------
+
+    c->sl = sl;
+    c->jCallBacks = jcb;
+
+    startOrContinueRecording(c);
 }
 
 
