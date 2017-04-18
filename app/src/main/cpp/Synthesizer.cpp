@@ -9,20 +9,21 @@
 
 using namespace wsl;
 
-Synthesizer::Synthesizer(uint32_t sampleRate) : sampleRate(sampleRate) {
-    frame = 0;
-    argument = 0;
-    rampSamples = (uint16_t) ((sampleRate * RAMP_TIME) / 1000);
-    topSamples = (uint16_t) ((sampleRate * TOP_TIME) / 1000);
+Synthesizer::Synthesizer(uint32_t sampleRate) : sampleRate(sampleRate),
+                                                rampSamples((uint16_t) ((sampleRate * RAMP_TIME) / 1000)),
+                                                topSamples((uint16_t) ((sampleRate * TOP_TIME) / 1000)) {
 }
 
 
-uint32_t Synthesizer::generate(int8_t *samples, uint32_t size, const char *mes) {
+uint32_t Synthesizer::generate(int16_t *samples, uint32_t size, const char *mes, double volume) {
     uint32_t proc = 0;
     size_t len = strlen(mes);
     float freq = 0, prevFreq = 0;
-    const uint8_t halfampl = 1 << 5;
+    const int16_t halfampl = 1 << 5;
     const uint8_t amplStep = (uint8_t) (rampSamples / halfampl);
+    int frame = 0;
+    int argument = 0;
+
 
     for (int i = 0; i < len; i++) {
         char ch = mes[i];
@@ -35,18 +36,20 @@ uint32_t Synthesizer::generate(int8_t *samples, uint32_t size, const char *mes) 
                 prevFreq = freq;
             }
             float freqGradient = (ss.freq - prevFreq) / rampSamples;
-            uint8_t amplitude = halfampl;
+            int16_t amplitude = halfampl;
 
             for (int j = 0; j < topSamples + rampSamples; j++) {
                 double arg = (2 * PI * (argument++) * freq) / sampleRate;
                 double sn = sin(arg);
-                double smpl = amplitude * sn;
-                int8_t bt = (int8_t) round(smpl);
+                double smpl = volume * amplitude * sn;
+                int16_t bt = (int16_t) round(smpl);
                 samples[proc++] = bt;
                 if (j < rampSamples) {
                     freq += freqGradient;
-                    if (!(j % amplStep) && !(amplitude & 0x80)) {
+//                    if (!(j % amplStep)) {
+                    if (!(j % amplStep)&& !(amplitude & 0x80)) {
                         amplitude++;
+//                    }
                     }
                 }
 
@@ -68,7 +71,7 @@ sound_symbol Synthesizer::findSymbol(char ch) {
             return s;
         }
     }
-    return {'\0', -1, 0};
+    return {'\0', -1};
 }
 
 uint32_t Synthesizer::expectedSize(size_t symbols) {

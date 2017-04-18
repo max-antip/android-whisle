@@ -20,10 +20,9 @@ add_library( # Sets the name of the library.
              # file are automatically included.
              src/main/cpp/Synthesizer.cpp
              src/main/cpp/Synthesizer.h
-             src/main/cpp/PitchDetector.cpp
-             src/main/cpp/PitchDetector.h
-             src/main/cpp/Decoder.h
-             src/main/cpp/Decoder.cpp
+             src/main/cpp/Base32.cpp
+             src/main/cpp/Base32.h
+             src/main/cpp/Crc.h
              src/main/cpp/whistle-lib.cpp
               )
 
